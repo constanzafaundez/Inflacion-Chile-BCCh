@@ -6,7 +6,7 @@
 
 ## 📊 Reporte Interactivo 
 
-[Ver análisis completo](https://constanzafaundez.github.io/Inflacion-Chile-BCCh/inflation.html)  
+[Ver artículo completo](https://constanzafaundez.github.io/Inflacion-Chile-BCCh/inflation.html)  
 *(Haz clic para explorar gráficos interactivos)*
 
 [![Preview](https://img.shields.io/badge/Preview-Reporte_HTML-blue?style=for-the-badge&logo=github)](https://constanzafaundez.github.io/Inflacion-Chile-BCCh/inflation.html)
