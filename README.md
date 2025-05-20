@@ -6,10 +6,10 @@
 
 ## 📊 Reporte Interactivo 
 
-[Ver análisis completo](https://tuusuario.github.io/BCCh-Inflation-Analysis/analisis_inflacion.html)  
+[Ver análisis completo](https://constanzafaundez.github.io/Inflacion-Chile-BCCh/inflation.html)  
 *(Haz clic para explorar gráficos interactivos)*
 
-[![Preview](https://img.shields.io/badge/Preview-Reporte_HTML-blue?style=for-the-badge&logo=github)](https://tuusuario.github.io/BCCh-Inflation-Analysis/analisis_inflacion.html)
+[![Preview](https://img.shields.io/badge/Preview-Reporte_HTML-blue?style=for-the-badge&logo=github)](https://constanzafaundez.github.io/Inflacion-Chile-BCCh/inflation.html)
 
 ## **Introducción**
 
@@ -59,22 +59,24 @@ library(dplyr)
 library(ggplot2)
 library(plotly)
 library(zoo)
-``
+```
 
-Autenticación en la API del BCCh
+**Autenticación en la API del BCCh**
 
 Antes de ejecutar la siguiente parte del código, debes:
 
 - Registrar una cuenta en el portal del Banco Central de Chile
 - Obtener tus credenciales de acceso (usuario y contraseña)
 
-```{r pass}
+```r
 Sys.setenv(BCCH_USER = "usuario@email.com") #Reemplaza con tu email
 Sys.setenv(BCCH_PASS = "contraseña") #Reemplaza con tu contraseña
 ```
 ## **3. Extracción de datos**
 
 Función robusta para obtener datos directamente desde la API del Banco Central de Chile:
+
+```r
   get_bcch_data <- function(series_code, start_date = NULL, end_date = NULL) {
     
   #' Obtiene datos del Banco Central de Chile
@@ -183,7 +185,8 @@ Función robusta para obtener datos directamente desde la API del Banco Central 
     stop(paste("Error al obtener datos:", e$message))
   })
 }
-#### **4. Ejecución de la extracción**
+```
+## **4. Ejecución de la extracción**
 
 Este proceso automatiza la descarga de datos oficiales del Índice de Precios al Consumidor (IPC) directamente desde la API del Banco Central de Chile, garantizando precisión y actualización en tiempo real.
 
@@ -194,4 +197,194 @@ Este proceso automatiza la descarga de datos oficiales del Índice de Precios al
   - Periodicidad: Mensual
 
 **Nota: Para otras series (ej. IMACEC, tasa de desempleo), modificar series_code según el catálogo del BCCh.**
+
+```r 
+# Extracción de datos
+
+ipc_data <- get_bcch_data("F074.IPC.IND.Z.EP23.C.M")
+```
+
+## **5. Procesamiento de datos**
+
+Transformación de datos brutos del IPC en métricas de inflación estandarizadas:
+
+```r
+# Obtener los valores de diciembre como referencia
+
+dec_baselines <- ipc_data %>% 
+  filter(month(date) == 12) %>%
+  mutate(ref_year = year(date) + 1) %>%
+  select(ref_year, dec_value = value)
+
+# Calcular todas las métricas de inflación
+ipc_processed <- ipc_data %>%
+  arrange(date) %>%  # Ordenamos por fecha
+  mutate(
+    year = year(date),
+    month = month(date, label = TRUE, abbr = FALSE),
+    month_year = format(date, "%Y-%m")
+  ) %>%
+  # Unir con los valores de referencia de diciembre
+  left_join(dec_baselines, by = c("year" = "ref_year")) %>%
+  # Calcular las tres métricas principales
+  mutate(
+    # Inflación mensual (variación respecto al mes anterior)
+    monthly_inflation = (value / lag(value, 1) - 1) * 100,
+    
+    # Inflación anual (variación respecto al mismo mes del año anterior)
+    annual_inflation = (value / lag(value, 12) - 1) * 100,
+    
+    # Inflación acumulada (variación respecto a diciembre del año anterior)
+    bcch_accumulated = (value / dec_value - 1) * 100
+  ) %>%
+  # Limpiar y organizar el output
+  select(
+    date, 
+    month_year, 
+    year, 
+    month,
+    ipc_index = value,
+    monthly_inflation,
+    annual_inflation,
+    accumulated_inflation = bcch_accumulated
+  ) %>%
+  # Redondear todos los porcentajes a 1 decimal
+  mutate(across(c(monthly_inflation, annual_inflation, accumulated_inflation), 
+                ~round(., 1)))
+
+
+# Mostrar las primeras filas del resultado
+head(ipc_processed)
+```
+
+## **6. Análsisis de resultados**
+
+Representación gráfica para diagnóstico económico:
+
+  **i. Inflación mensual**
+
+```r
+
+plot_monthly <- ggplot(ipc_processed, aes(x = date, y = monthly_inflation)) +
+  geom_col(
+    aes(fill = monthly_inflation < 0),  # Colores distintos para inflación positiva/negativa
+    width = 20, 
+    alpha = 0.8, 
+    show.legend = FALSE
+  ) +
+  scale_fill_manual(
+    values = c("#005293", "#E2001A"), 
+    guide = "none"
+  ) +
+  geom_hline(yintercept = 0, color = "black", linewidth = 0.7) +
+  labs(
+    title = "Inflación Mensual en Chile 2009-2025",
+    subtitle = "Variación porcentual mes a mes",
+    x = NULL, 
+    y = "Variación % mensual",
+    caption = "Fuente: Elaboración propia en base a datos del Banco Central de Chile"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    panel.grid.major.x = element_blank(),
+    axis.text = element_text(size = 10),
+    plot.caption = element_text(color = "gray50"),
+    legend.position = "none"
+  )
+
+# Convertir a gráfico interactivo con plotly
+
+ggplotly(plot_monthly) %>% 
+  layout(
+    hovermode = "x unified",
+    annotations = list(
+      x = 0.5, y = -0.3,
+      text = "Nota: Barras azules = inflación +; Barras rojas = inflación -",
+      showarrow = FALSE,
+      xref = "paper", yref = "paper"
+    )
+  )
+
+```
+
+El gráfico muestra la volatilidad característica de la inflación mensual, con eventos destacados:
+
+- Protestas sociales (2019)
+- Pandemia COVID-19 (2020-2021)
+- Presiones inflacionarias post-pandemia (2022)
+
+**ii. Inflación anual**
+
+```r 
+plot_annual <- ggplot(ipc_processed %>% filter(!is.na(annual_inflation)), 
+                      aes(x = date, y = annual_inflation)) +
+  geom_line(color = "#005293", size = 0.5) +
+  # Líneas para el rango meta del BCCh (2%-4%)
+  geom_hline(yintercept = c(2, 4), linetype = "dashed", color = "#E2001A") +
+  geom_hline(yintercept = 0, color = "black") +
+  labs(
+    title = "Inflación Anual en Chile 2009-2025",
+    subtitle = "Variación porcentual en 12 meses",
+    x = NULL, 
+    y = "Variación % anual",
+    caption = "Fuente: Elaboración propia en base a datos del Banco Central de Chile\nLíneas punteadas: Rango meta de inflación BCCh (2%-4%)"
+  ) +
+  theme_minimal() +
+  scale_y_continuous(breaks = seq(-2, 15, by = 1))
+
+# Versión interactiva
+
+ggplotly(plot_annual) %>% 
+  layout(
+    hovermode = "x unified",
+    annotations = list(
+      x = 0.5, y = -0.3,
+      text = "El rango meta de inflación del BCCh es 2%-4% anual",
+      showarrow = FALSE,
+      xref = "paper", yref = "paper"
+    )
+  )
+```
+
+El gráfico permite evaluar la efectividad del esquema de metas de inflación:
+
+- Períodos dentro del rango meta (2013-2019)
+- Eventos de overshooting inflacionario (2022)
+- Efectividad de las medidas contractivas recientes
+
+## **7. Reporte de indicadores actuales**
+
+```r
+
+# Calcular métricas clave
+
+ultimo_mes <- ipc_processed %>% filter(date == max(date))
+
+inflacion_actual <- data.frame(
+  "Indicador" = c("Mes", "IPC", "Inflación Mensual", "Inflación Anual", "Inflación Acumulada"),
+  "Valor" = c(
+    format(ultimo_mes$date, "%B %Y"),
+    round(ultimo_mes$ipc_index, 1),
+    paste0(ultimo_mes$monthly_inflation, "%"),
+    paste0(ultimo_mes$annual_inflation, "%"),
+    paste0(ultimo_mes$accumulated_inflation, "%")
+  )
+)
+```
+---
+
+## **8. Actualizaciones**
+
+**Última actualización:** 19 mayo 2025  
+
+**Comentario:** Código en desarrollo para automatización de reportes inflacionarios.  
+
+Próximas mejoras incluirán:
+
+- Integración con API BCCh en tiempo real  
+- Paneles interactivos con Shiny  
+- Validación automática de metadatos  
+
+
 
